@@ -299,7 +299,7 @@ static esp_err_t handler_root(httpd_req_t *req)
     }
 
     /* Router mode: build status page */
-    char html[3072];
+    static char html[3072];
     const char *dot  = g_wifi_up ? "green"      : "orange";
     const char *stat = g_wifi_up ? "Connected"  : "Connecting...";
     snprintf(html, sizeof(html), STATUS_HTML_FMT,
@@ -372,8 +372,11 @@ static esp_err_t handler_reset(httpd_req_t *req)
 static httpd_handle_t start_webserver(void)
 {
     httpd_config_t config  = HTTPD_DEFAULT_CONFIG();
-    config.lru_purge_enable = true;
-    config.max_uri_handlers = 8;
+    config.lru_purge_enable  = true;
+    config.max_uri_handlers  = 8;
+    config.stack_size        = 8192;   /* default 4096 is too small for large HTML */
+    config.recv_wait_timeout = 10;
+    config.send_wait_timeout = 10;
 
     httpd_handle_t server = NULL;
     if (httpd_start(&server, &config) != ESP_OK) {
