@@ -1,0 +1,65 @@
+name: Build MinerBridge Firmware
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # allows manual trigger from Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3.1
+          target: esp32
+          path: '.'
+          command: idf.py build
+
+      - name: Collect firmware binaries
+        run: |
+          mkdir -p firmware
+          cp build/bootloader/bootloader.bin        firmware/
+          cp build/partition_table/partition-table.bin firmware/
+          cp build/miner_bridge.bin                 firmware/
+          cp build/flasher_args.json                firmware/ 2>/dev/null || true
+
+          # Write a ready-to-use flash instructions file
+          cat > firmware/FLASH_INSTRUCTIONS.txt << 'EOF'
+          MinerBridge — Flash Instructions (WT32-ETH01)
+          ===============================================
+
+          Using esptool.py:
+            esptool.py --chip esp32 --port COM3 --baud 460800 write_flash \
+              0x1000  bootloader.bin \
+              0x8000  partition-table.bin \
+              0x10000 miner_bridge.bin
+
+          Using Flash Download Tool (Windows GUI):
+            bootloader.bin        → 0x1000
+            partition-table.bin   → 0x8000
+            miner_bridge.bin      → 0x10000
+
+          After flashing:
+            1. Power from a proper 5V USB charger (NOT just the serial adapter)
+            2. Connect to WiFi AP:  MinerBridge  (open, no password)
+            3. Open browser:        http://192.168.4.1
+            4. Enter your home WiFi SSID + password → Save
+            5. Device reboots and connects to your WiFi
+            6. Plug miner into Ethernet — it gets internet automatically
+            7. Status page available at http://192.168.4.1 from Ethernet side
+          EOF
+
+      - name: Upload firmware as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: miner_bridge_firmware
+          path: firmware/
+          retention-days: 90
