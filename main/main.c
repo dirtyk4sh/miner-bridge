@@ -242,7 +242,8 @@ static void nvs_load_creds(void)
     len = sizeof(g_pass);
     nvs_get_str(h, NVS_PASS, g_pass, &len);
     nvs_close(h);
-    ESP_LOGI(TAG, g_has_creds ? "Credentials loaded: %s" : "No credentials saved", g_ssid);
+    if (g_has_creds) ESP_LOGI(TAG, "Credentials loaded: %s", g_ssid);
+    else ESP_LOGI(TAG, "No credentials saved");
 }
 
 static void nvs_save_creds(const char *ssid, const char *pass)
@@ -274,17 +275,15 @@ static void setup_port_forward(void)
 {
     if (!g_miner_online || !g_wifi_up) return;
 
-    /* NAPT port forwarding: external_port -> miner_ip:miner_port */
-    ip_napt_portmap_t pm = {0};
-    pm.proto      = IP_PROTO_TCP;
-    pm.mport_be   = PP_HTONS(FORWARD_PORT);
-    pm.dport_be   = PP_HTONS(MINER_UI_PORT);
-    pm.daddr_be   = inet_addr(g_miner_ip);
+    /* ip_portmap_add(proto, wan_ip, wan_port, lan_ip, lan_port)
+     * proto 6 = TCP. Returns 1 on success. */
+    uint32_t miner_addr = inet_addr(g_miner_ip);
+    uint32_t sta_addr   = inet_addr(g_sta_ip);
 
-    if (ip_napt_add_portmap(&pm) == ERR_OK) {
-        ESP_LOGI(TAG, "Port forward: WiFi:%d -> %s:%d", FORWARD_PORT, g_miner_ip, MINER_UI_PORT);
+    if (ip_portmap_add(6, sta_addr, FORWARD_PORT, miner_addr, MINER_UI_PORT)) {
+        ESP_LOGI(TAG, "Port forward OK: WiFi:%d -> %s:%d", FORWARD_PORT, g_miner_ip, MINER_UI_PORT);
     } else {
-        ESP_LOGW(TAG, "Port forward setup failed — miner UI reachable from Ethernet side only");
+        ESP_LOGW(TAG, "Port forward failed -- miner UI on Ethernet side only");
     }
 }
 
@@ -409,17 +408,8 @@ static void eth_event_handler(void *arg, esp_event_base_t base,
                               int32_t id, void *data)
 {
     if (base == IP_EVENT && id == IP_EVENT_ETH_GOT_IP) {
-        /* A device on Ethernet got an IP -- almost certainly the miner */
-        ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
-
-        /* The DHCP server assigns from .2 upwards; first lease is always the miner */
-        uint32_t miner_addr = ntohl(ev->ip_info.ip.addr);
-        struct in_addr a;
-        a.s_addr = htonl(miner_addr);
-        /* We can't get the client IP directly here; scan the expected first lease */
-        (void)miner_addr;
-
-        /* Derive miner IP: gateway+1 = 192.168.4.2 as first DHCP lease */
+        (void)data;
+        /* DHCP assigns from .2 upwards; first (and only) device is the miner */
         snprintf(g_miner_ip, sizeof(g_miner_ip), "192.168.4.2");
         g_miner_online = true;
         ESP_LOGI(TAG, "Miner detected at %s", g_miner_ip);
