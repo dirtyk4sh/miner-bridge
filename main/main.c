@@ -26,6 +26,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_eth.h"
+#include "esp_eth_com.h"
 #include "esp_eth_mac.h"
 #include "esp_eth_phy.h"
 #include "esp_http_server.h"
@@ -407,13 +408,16 @@ static httpd_handle_t start_webserver(void)
 static void eth_event_handler(void *arg, esp_event_base_t base,
                               int32_t id, void *data)
 {
-    if (base == IP_EVENT && id == IP_EVENT_ETH_GOT_IP) {
-        (void)data;
-        /* DHCP assigns from .2 upwards; first (and only) device is the miner */
+    if (base == ETH_EVENT && id == ETHERNET_EVENT_CONNECTED) {
+        /* Physical link up — miner has plugged in, first DHCP lease = .2 */
         snprintf(g_miner_ip, sizeof(g_miner_ip), "192.168.4.2");
         g_miner_online = true;
-        ESP_LOGI(TAG, "Miner detected at %s", g_miner_ip);
+        ESP_LOGI(TAG, "Ethernet link up — miner assumed at %s", g_miner_ip);
         setup_port_forward();
+    } else if (base == ETH_EVENT && id == ETHERNET_EVENT_DISCONNECTED) {
+        g_miner_online = false;
+        snprintf(g_miner_ip, sizeof(g_miner_ip), "Not connected");
+        ESP_LOGW(TAG, "Ethernet link down — miner disconnected");
     }
 }
 
@@ -465,9 +469,9 @@ static void eth_init(void)
     ESP_ERROR_CHECK(esp_netif_attach(g_eth_netif, glue));
     ESP_ERROR_CHECK(esp_eth_start(eth_handle));
 
-    /* Listen for miner getting a DHCP lease */
+    /* Listen for Ethernet link events (miner plug/unplug) */
     ESP_ERROR_CHECK(esp_event_handler_register(
-        IP_EVENT, IP_EVENT_ETH_GOT_IP, eth_event_handler, NULL));
+        ETH_EVENT, ESP_EVENT_ANY_ID, eth_event_handler, NULL));
 
     ESP_LOGI(TAG, "Ethernet up -- gateway %s, DHCP server running", ETH_STATIC_IP);
 }
